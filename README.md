@@ -1,5 +1,4 @@
 # uoro
-<img width="686" height="755" alt="image" src="https://github.com/user-attachments/assets/27a919c0-8862-46be-8e6e-b7ffdd2661b0" />
 
 a open source roblox executor bridge duel script for pc that also contains some exploits so please bridge duel devs don't patch this 🙏🙏
 here are all the features:
@@ -58,5 +57,5 @@ Here's a complete list of all features in the script:
 • Theme System
 • Config System
 • Menu Keybind
-
+<img width="686" height="755" alt="image" src="https://github.com/user-attachments/assets/27a919c0-8862-46be-8e6e-b7ffdd2661b0" />
 ### feel free to make pull request my [discord server](https://discord.gg/Z8CwRjxgYw)
