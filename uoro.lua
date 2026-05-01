@@ -1,5 +1,11 @@
 -- please skidders stop looking at my code 😭😭
 -- btw if someone is complaining i did this in fucking 10 hours and i should call this beta since im not done tbh
+
+local executor = identifyexecutor()
+if executor == "Xeno" or executor == "Solara" or executor == "JJsploit" then
+    localplayer:Kick("use a better executor")
+end
+
 local repo = "https://raw.githubusercontent.com/mstudio45/LinoriaLib/main/" -- prob worst ui library i could choose please dm me on discord for a better ui library @the_zylang
 
 local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
