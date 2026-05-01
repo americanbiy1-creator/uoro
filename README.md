@@ -59,4 +59,4 @@ Here's a complete list of all features in the script:
 • Config System
 • Menu Keybind
 
-### feel free to make pull request my (discord server)[https://discord.gg/Z8CwRjxgYw]
+### feel free to make pull request my [discord server](https://discord.gg/Z8CwRjxgYw)
