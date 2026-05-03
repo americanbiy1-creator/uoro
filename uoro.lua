@@ -37,6 +37,7 @@ local storedOriginalSizes = {}
 local SwordAimbotToggled = false
 local BowAimbotToggled = false
 local AutoPlaceToggled = false
+local ShowMapToggled = false
 
 local clicking = false
 local IsHoldingBow = false
@@ -428,6 +429,7 @@ flyGroup:AddSlider("FlySpeed", {
 
 local miscGroup = Tabs.Misc:AddLeftGroupbox("Bow Utilities")
 local autoPlaceGroup = Tabs.Misc:AddRightGroupbox("Auto Place")
+local mapGroup = Tabs.Misc:AddLeftGroupbox("Map")
 
 miscGroup:AddToggle("BowTrajectory", {
     Text = "Bow Trajectory",
@@ -458,6 +460,26 @@ autoPlaceGroup:AddLabel("Auto Place Key"):AddKeyPicker("AutoPlaceKey", {
     Default = "P",
     Mode = "Hold",
     Text = "Auto Place key",
+    NoUI = false
+})
+
+mapGroup:AddToggle("ShowMap", {
+    Text = "Show Map",
+    Default = false,
+    Tooltip = "shows the in-game map"
+})
+
+mapGroup:AddDropdown("ShowMapMode", {
+    Text = "Show Map Mode",
+    Values = { "Always", "Toggle", "Hold" },
+    Default = 2,
+    Tooltip = "how show map activates"
+})
+
+mapGroup:AddLabel("Show Map Key"):AddKeyPicker("ShowMapKey", {
+    Default = "M",
+    Mode = "Toggle",
+    Text = "Show Map key",
     NoUI = false
 })
 
@@ -951,6 +973,17 @@ local function IsKillAuraActive()
     return false
 end
 
+local function IsShowMapActive()
+    if not Toggles.ShowMap.Value then return false end
+    
+    local mode = Options.ShowMapMode.Value
+    if mode == "Always" then return true end
+    if mode == "Toggle" then return ShowMapToggled end
+    if mode == "Hold" then return Options.ShowMapKey:GetState() end
+    
+    return false
+end
+
 -- changed callbacks
 Options.NoclipMode:OnChanged(function()
     if Options.NoclipMode.Value == "Toggle" then
@@ -967,6 +1000,38 @@ end)
 Options.AutoPlaceKey:OnClick(function()
     if Options.AutoPlaceMode.Value == "Toggle" then
         AutoPlaceToggled = not AutoPlaceToggled
+    end
+end)
+
+Options.ShowMapMode:OnChanged(function()
+    ShowMapToggled = false
+    
+    local mode = Options.ShowMapMode.Value
+    if mode == "Hold" then
+        Options.ShowMapKey:SetValue({ Options.ShowMapKey.Value, "Hold" })
+    elseif mode == "Toggle" then
+        Options.ShowMapKey:SetValue({ Options.ShowMapKey.Value, "Toggle" })
+    elseif mode == "Always" then
+        Options.ShowMapKey:SetValue({ Options.ShowMapKey.Value, "Toggle" })
+        ShowMapToggled = false
+    end
+end)
+
+Options.ShowMapKey:OnClick(function()
+    if Options.ShowMapMode.Value == "Toggle" then
+        ShowMapToggled = not ShowMapToggled
+    end
+end)
+
+-- show map loop
+RunService.RenderStepped:Connect(function()
+    local mapActive = IsShowMapActive()
+    local mainGui = localplayer.PlayerGui:FindFirstChild("MainGui")
+    if mainGui then
+        local map = mainGui:FindFirstChild("Map") or mainGui:FindFirstChild("Minimap") or mainGui:FindFirstChild("MapFrame")
+        if map then
+            map.Visible = mapActive
+        end
     end
 end)
 
