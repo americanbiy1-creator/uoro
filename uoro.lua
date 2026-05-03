@@ -6,14 +6,7 @@ if executor == "Xeno" or executor == "Solara" or executor == "JJsploit" then
     localplayer:Kick("use a better executor")
 end
 
-local repo = "https://raw.githubusercontent.com/mstudio45/LinoriaLib/main/" -- prob worst ui library i could choose please dm me on discord for a better ui library @the_zylang
-
-local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
-local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
-local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
-
-local Options = Library.Options
-local Toggles = Library.Toggles
+local Bracket = loadstring(game:HttpGet("https://raw.githubusercontent.com/AlexR32/Bracket/main/BracketV33.lua"))()
 
 local RunService = game:GetService("RunService")
 local PlayerService = game:GetService("Players")
@@ -93,449 +86,413 @@ FOVCircle.Filled = false
 FOVCircle.Color = Color3.fromRGB(255, 255, 255)
 FOVCircle.Visible = false
 
-local Window = Library:CreateWindow({
-    Title = "uoro", -- who is putting those names
-    Center = true,
-    AutoShow = true,
-    Resizable = true,
-    ShowCustomCursor = true,
-    UnlockMouseWhileOpen = true,
-    NotifySide = "Left",
-    TabPadding = 8,
-    MenuFadeTime = 0.2
+-- bracket ui setup
+local Window = Bracket:Window({
+    Name = "uoro", -- who is putting those names
+    Enabled = true,
+    Color = Color3.fromRGB(255, 128, 64),
+    Size = UDim2.new(0, 600, 0, 500),
+    Position = UDim2.new(0.5, -300, 0.5, -250),
+    Blur = false,
 })
 
+local Watermark = Window:Watermark({
+    Title = "uoro",
+    Flag = "UI/Watermark/Position",
+    Enabled = true,
+})
+
+local function getFlag(flag) return Window.Flags[flag] end
+
+-- shared keybind state tracker (replaces Options.X:GetState() from linoria)
+local keybindStates = {}
+local function trackKeybind(flag) keybindStates[flag] = { held = false, toggled = false } end
+local function isKeyHeld(flag) local s = keybindStates[flag] return s and s.held or false end
+local function isKeyToggled(flag) local s = keybindStates[flag] return s and s.toggled or false end
+
+local function makeKeybindCallback(flag)
+    return function(_key, pressed, toggled)
+        local s = keybindStates[flag]
+        if not s then return end
+        s.held = pressed
+        s.toggled = toggled
+    end
+end
+
+-- mode tracker for Always/Toggle/Hold dropdowns (replaces Options.XMode.Value)
+local modeStates = {}
+local function makeModeOption(flagName, name, defaultSelected, onSelect)
+    return {
+        Name = name,
+        Mode = "Button",
+        Value = defaultSelected,
+        Callback = function(selected)
+            if table.find(selected, name) then
+                modeStates[flagName] = name
+                if onSelect then onSelect(name) end
+            end
+        end,
+    }
+end
+
+-- tabs
 local Tabs = {
-    ESP = Window:AddTab("ESP"),
-    Aimbot = Window:AddTab("Aimbot"),
-    Combat = Window:AddTab("Combat"),
-    Movement = Window:AddTab("Movement"),
-    Misc = Window:AddTab("Misc"),
-    ["UI Settings"] = Window:AddTab("UI Settings"),
+    ESP = Window:Tab({Name = "ESP"}),
+    Aimbot = Window:Tab({Name = "Aimbot"}),
+    Combat = Window:Tab({Name = "Combat"}),
+    Movement = Window:Tab({Name = "Movement"}),
+    Misc = Window:Tab({Name = "Misc"}),
+    Settings = Window:Tab({Name = "Settings"}),
 }
 
-local espGroup = Tabs.ESP:AddLeftGroupbox("ESP Settings")
-local espFeaturesGroup = Tabs.ESP:AddRightGroupbox("ESP Features")
+-- esp ui
+local espGroup = Tabs.ESP:Section({Name = "ESP Settings", Side = "Left"})
+local espFeaturesGroup = Tabs.ESP:Section({Name = "ESP Features", Side = "Right"})
 
-espGroup:AddToggle("EspEnabled", {
-    Text = "Enable ESP",
-    Default = false,
-    Tooltip = "toggles esp"
-})
+espGroup:Toggle({Name = "Enable ESP", Flag = "EspEnabled", Value = false}):ToolTip("toggles esp")
 
-espFeaturesGroup:AddToggle("EspBoxEnabled", {
-    Text = "Box ESP",
-    Default = false,
-    Tooltip = "shows a box around players"
-})
+espFeaturesGroup:Toggle({Name = "Box ESP", Flag = "EspBoxEnabled", Value = false}):ToolTip("shows a box around players")
+espFeaturesGroup:Toggle({Name = "Name ESP", Flag = "EspNameEnabled", Value = false}):ToolTip("shows player names above their box")
+espFeaturesGroup:Toggle({Name = "Health Bar", Flag = "EspHealthBarEnabled", Value = false}):ToolTip("shows health bar next to the box")
+espFeaturesGroup:Toggle({Name = "Health Text", Flag = "EspHealthTextEnabled", Value = false}):ToolTip("shows health numbers and a bar that goes from green to red based on health next to the box")
+espFeaturesGroup:Toggle({Name = "Distance", Flag = "EspDistanceEnabled", Value = false}):ToolTip("shows distance in studs below the box")
 
-espFeaturesGroup:AddToggle("EspNameEnabled", {
-    Text = "Name ESP",
-    Default = false,
-    Tooltip = "shows player names above their box"
-})
+-- aimbot ui
+local swordGroup = Tabs.Aimbot:Section({Name = "Sword Aimbot", Side = "Left"})
+local bowGroup = Tabs.Aimbot:Section({Name = "Bow Aimbot", Side = "Right"})
+local fovGroup = Tabs.Aimbot:Section({Name = "FOV Circle", Side = "Left"})
 
-espFeaturesGroup:AddToggle("EspHealthBarEnabled", {
-    Text = "Health Bar",
-    Default = false,
-    Tooltip = "shows health bar next to the box"
-})
+swordGroup:Toggle({Name = "Enable Sword Aimbot", Flag = "SwordAimbotEnabled", Value = false}):ToolTip("aims at nearest enemy when having sword equipped")
 
-espFeaturesGroup:AddToggle("EspHealthTextEnabled", {
-    Text = "Health Text",
-    Default = false,
-    Tooltip = "shows health numbers and a bar that goes from green to red based on health next to the box"
-})
+modeStates["SwordAimbotMode"] = "Toggle"
+swordGroup:Dropdown({Name = "Aimbot Mode", Flag = "SwordAimbotMode", List = {
+    makeModeOption("SwordAimbotMode", "Always", false),
+    makeModeOption("SwordAimbotMode", "Toggle", true, function() SwordAimbotToggled = false end),
+    makeModeOption("SwordAimbotMode", "Hold", false, function() SwordAimbotToggled = false end),
+}}):ToolTip("how the sword aimbot activates")
 
-espFeaturesGroup:AddToggle("EspDistanceEnabled", {
-    Text = "Distance",
-    Default = false,
-    Tooltip = "shows distance in studs below the box"
-})
-
-local swordGroup = Tabs.Aimbot:AddLeftGroupbox("Sword Aimbot")
-local bowGroup = Tabs.Aimbot:AddRightGroupbox("Bow Aimbot")
-local fovGroup = Tabs.Aimbot:AddLeftGroupbox("FOV Circle")
-
-swordGroup:AddToggle("SwordAimbotEnabled", {
-    Text = "Enable Sword Aimbot",
-    Default = false,
-    Tooltip = "aims at nearest enemy when having sword equipped"
-})
-
-swordGroup:AddDropdown("SwordAimbotMode", {
-    Text = "Aimbot Mode",
-    Values = { "Always", "Toggle", "Hold" },
-    Default = 2,
-    Tooltip = "how the sword aimbot activates"
-})
-
-swordGroup:AddLabel("Sword Aimbot Key"):AddKeyPicker("SwordAimbotKey", {
-    Default = "LeftAlt",
-    Mode = "Hold",
-    Text = "Sword Aimbot key",
-    NoUI = false
-})
-
-swordGroup:AddToggle("SwordWallcheck", {
-    Text = "Wall Check",
-    Default = false,
-    Tooltip = "only aims at players not behind walls"
-})
-
-swordGroup:AddToggle("SwordSmoothnessEnabled", {
-    Text = "Smoothness",
-    Default = false,
-    Tooltip = "adds smoothness to the aimbot"
-})
-
-swordGroup:AddSlider("SwordSmoothness", {
-    Text = "Smoothness Value",
-    Default = 1,
-    Min = 1,
-    Max = 10,
-    Rounding = 0,
-    Tooltip = "higher = smoother but slower"
-})
-
-swordGroup:AddSlider("SwordFOV", {
-    Text = "FOV Radius",
-    Default = 200,
-    Min = 10,
-    Max = 500,
-    Rounding = 0,
-    Tooltip = "radius of the FOV circle for sword aimbot"
-})
-
-bowGroup:AddToggle("BowAimbotEnabled", {
-    Text = "Enable Bow Aimbot",
-    Default = false,
-    Tooltip = "aims at nearest enemy when having bow equipped"
-})
-
-bowGroup:AddDropdown("BowAimbotMode", {
-    Text = "Aimbot Mode",
-    Values = { "Always", "Toggle", "Hold" },
-    Default = 3,
-    Tooltip = "how the bow aimbot activates"
-})
-
-bowGroup:AddLabel("Bow Aimbot Key"):AddKeyPicker("BowAimbotKey", {
-    Default = "MB2",
-    Mode = "Hold",
-    Text = "Bow Aimbot key",
-    NoUI = false
-})
-
-bowGroup:AddToggle("BowWallcheck", {
-    Text = "Wall Check",
-    Default = false,
-    Tooltip = "only aims at players not behind wall"
-})
-
-bowGroup:AddToggle("BowSmoothnessEnabled", {
-    Text = "Smoothness",
-    Default = false,
-    Tooltip = "makes aimbot smoother"
-})
-
-bowGroup:AddSlider("BowSmoothness", {
-    Text = "Smoothness Value",
-    Default = 1,
-    Min = 1,
-    Max = 10,
-    Rounding = 0,
-    Tooltip = "higher = smoother but slower"
-})
-
-bowGroup:AddSlider("BowFOV", {
-    Text = "FOV Radius",
-    Default = 200,
-    Min = 10,
-    Max = 500,
-    Rounding = 0,
-    Tooltip = "radius of the FOV circle for bow aimbot"
-})
-
-fovGroup:AddToggle("ShowFOV", {
-    Text = "Show FOV Circle",
-    Default = false,
-    Tooltip = "displays the FOV circle on screen"
-})
-
-local combatGroup = Tabs.Combat:AddLeftGroupbox("Hitbox Expander")
-local autoClickGroup = Tabs.Combat:AddRightGroupbox("Auto Clicker")
-local killAuraGroup = Tabs.Combat:AddLeftGroupbox("Kill Aura")
-
-combatGroup:AddToggle("HitboxExpander", {
-    Text = "Enable Hitbox Expander",
-    Default = false,
-    Tooltip = "expands enemy hitboxes (doesn't act as a infinite reach tho"
-})
-
-combatGroup:AddSlider("HitboxSize", {
-    Text = "Hitbox Size",
-    Default = 50,
-    Min = 1,
-    Max = 200,
-    Rounding = 0,
-    Tooltip = "size of expanded hitboxes"
-})
-
-combatGroup:AddSlider("HitboxTransparency", {
-    Text = "Hitbox Transparency",
-    Default = 10,
-    Min = 0,
-    Max = 10,
-    Rounding = 0,
-    Tooltip = "Transparency of expanded hitboxes (10 = invisible)"
-})
-
-autoClickGroup:AddToggle("AutoClicker", {
-    Text = "Enable Auto Clicker",
-    Default = false,
-    Tooltip = "auto clicks for you ❤️"
-})
-
-autoClickGroup:AddLabel("Auto Clicker Key"):AddKeyPicker("AutoClickerKey", {
-    Default = "Q",
-    Mode = "Hold",
-    Text = "Auto Clicker key",
-    NoUI = false
-})
-
-autoClickGroup:AddSlider("MinCPS", {
-    Text = "Min CPS",
-    Default = 12,
-    Min = 1,
-    Max = 30,
-    Rounding = 0,
-    Tooltip = "minimum clicks per second"
-})
-
-autoClickGroup:AddSlider("MaxCPS", {
-    Text = "Max CPS",
-    Default = 16,
-    Min = 1,
-    Max = 30,
-    Rounding = 0,
-    Tooltip = "maximum clicks per second"
-})
-
-killAuraGroup:AddToggle("KillAura", {
-    Text = "Enable Kill Aura",
-    Default = false,
-    Tooltip = "automatically attacks nearby players"
-})
-
-killAuraGroup:AddDropdown("KillAuraMode", {
-    Text = "Kill Aura Mode",
-    Values = { "Always", "Toggle", "Hold" },
-    Default = 2,
-    Tooltip = "How kill aura activates"
-})
-
-killAuraGroup:AddLabel("Kill Aura Key"):AddKeyPicker("KillAuraKey", {
-    Default = "K",
-    Mode = "Toggle",
-    Text = "Kill Aura key",
-    NoUI = false
-})
-
-killAuraGroup:AddSlider("KillAuraRadius", {
-    Text = "Radius",
-    Default = 10,
-    Min = 5,
-    Max = 200,
-    Rounding = 0,
-    Tooltip = "distance in studs to detect targets"
-})
-
-killAuraGroup:AddSlider("KillAuraCooldown", {
-    Text = "Attack Cooldown",
-    Default = 1,
-    Min = 1,
-    Max = 20,
-    Rounding = 0,
-    Tooltip = "cooldown between attacks (1 = 0.1s, 10 = 1s)"
-})
-
--- movement stuff
-local movementGroup = Tabs.Movement:AddLeftGroupbox("Movement")
-local flyGroup = Tabs.Movement:AddRightGroupbox("Fly")
-
-movementGroup:AddToggle("Speedhack", {
-    Text = "Speed Hack",
-    Default = false,
-    Tooltip = "makes you faster"
-})
-
-movementGroup:AddSlider("SpeedhackValue", {
-    Text = "Walk Speed",
-    Default = 25,
-    Min = 1,
-    Max = 50,
-    Rounding = 0,
-    Tooltip = "modified walkspeed value (be careful a high one might bug you out)"
-})
-
-movementGroup:AddToggle("NoFallDamage", {
-    Text = "No Fall Damage",
-    Default = false,
-    Tooltip = "you have no fall damage"
-})
-
-movementGroup:AddToggle("Noclip", {
-    Text = "Noclip",
-    Default = false,
-    Tooltip = "walk through walls"
-})
-
-movementGroup:AddDropdown("NoclipMode", {
-    Text = "Noclip Mode",
-    Values = { "Always", "Toggle", "Hold" },
-    Default = 2,
-    Tooltip = "how noclip activates"
-})
-
-movementGroup:AddLabel("Noclip Key"):AddKeyPicker("NoclipKey", {
-    Default = "N",
-    Mode = "Toggle",
-    Text = "Noclip key",
-    NoUI = false
-})
-
-flyGroup:AddToggle("Fly", {
-    Text = "Fly",
-    Default = false,
-    Tooltip = "lets you fly"
-})
-
-flyGroup:AddLabel("Fly Key"):AddKeyPicker("FlyKey", {
-    Default = "V",
-    Mode = "Toggle",
-    Text = "Fly key",
-    NoUI = false
-})
-
-flyGroup:AddSlider("FlySpeed", {
-    Text = "Fly Speed",
-    Default = 20,
-    Min = 1,
-    Max = 200,
-    Rounding = 0,
-    Tooltip = "how fast you fly"
-})
-
-local miscGroup = Tabs.Misc:AddLeftGroupbox("Bow Utilities")
-local autoPlaceGroup = Tabs.Misc:AddRightGroupbox("Auto Place")
-local mapGroup = Tabs.Misc:AddLeftGroupbox("Map")
-
-miscGroup:AddToggle("BowTrajectory", {
-    Text = "Bow Trajectory",
-    Default = false,
-    Tooltip = "shows the predicted arrow path when charging bow"
-})
-
-miscGroup:AddToggle("AutoShoot", {
-    Text = "Auto Shoot",
-    Default = false,
-    Tooltip = "automatically releases bow when trajectory hits a player (a bit broken)"
-})
-
-autoPlaceGroup:AddToggle("AutoPlace", {
-    Text = "Auto Place",
-    Default = false,
-    Tooltip = "automatically places blocks while moving"
-})
-
-autoPlaceGroup:AddDropdown("AutoPlaceMode", {
-    Text = "Auto Place Mode",
-    Values = { "Always", "Toggle", "Hold" },
-    Default = 1,
-    Tooltip = "how autoplace activates"
-})
-
-autoPlaceGroup:AddLabel("Auto Place Key"):AddKeyPicker("AutoPlaceKey", {
-    Default = "P",
-    Mode = "Hold",
-    Text = "Auto Place key",
-    NoUI = false
-})
-
-mapGroup:AddToggle("ShowMap", {
-    Text = "Show Map",
-    Default = false,
-    Tooltip = "shows the in-game map"
-})
-
-mapGroup:AddDropdown("ShowMapMode", {
-    Text = "Show Map Mode",
-    Values = { "Always", "Toggle", "Hold" },
-    Default = 2,
-    Tooltip = "how show map activates"
-})
-
-mapGroup:AddLabel("Show Map Key"):AddKeyPicker("ShowMapKey", {
-    Default = "M",
-    Mode = "Toggle",
-    Text = "Show Map key",
-    NoUI = false
-})
-
--- ui settings that i pasted basically from the example on linoria github page
-local menuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu")
-
-menuGroup:AddToggle("KeybindMenuOpen", {
-    Default = Library.KeybindFrame.Visible,
-    Text = "Open Keybind Menu",
-    Callback = function(value)
-        Library.KeybindFrame.Visible = value
-    end
-})
-
-menuGroup:AddToggle("ShowCustomCursor", {
-    Text = "Custom Cursor",
-    Default = true,
-    Callback = function(value)
-        Library.ShowCustomCursor = value
-    end
-})
-
-menuGroup:AddDivider()
-
-menuGroup:AddLabel("Menu Bind"):AddKeyPicker("MenuKeybind", {
-    Default = "RightShift",
-    NoUI = true,
-    Text = "Menu keybind"
-})
-
-menuGroup:AddButton({
-    Text = "Unload",
-    Func = function()
-        Library:Unload()
+trackKeybind("SwordAimbotKey")
+swordGroup:Keybind({
+    Name = "Sword Aimbot Key",
+    Flag = "SwordAimbotKey",
+    Value = "LeftAlt",
+    Callback = function(key, pressed, toggled)
+        keybindStates["SwordAimbotKey"].held = pressed
+        keybindStates["SwordAimbotKey"].toggled = toggled
+        if pressed and modeStates["SwordAimbotMode"] == "Toggle" then
+            SwordAimbotToggled = not SwordAimbotToggled
+        end
     end,
-    Tooltip = "Unloads the cheat"
+}):ToolTip("Sword Aimbot key")
+
+swordGroup:Toggle({Name = "Wall Check", Flag = "SwordWallcheck", Value = false}):ToolTip("only aims at players not behind walls")
+swordGroup:Toggle({Name = "Smoothness", Flag = "SwordSmoothnessEnabled", Value = false}):ToolTip("adds smoothness to the aimbot")
+swordGroup:Slider({Name = "Smoothness Value", Flag = "SwordSmoothness", Min = 1, Max = 10, Value = 1, Precise = 0}):ToolTip("higher = smoother but slower")
+swordGroup:Slider({Name = "FOV Radius", Flag = "SwordFOV", Min = 10, Max = 500, Value = 200, Precise = 0}):ToolTip("radius of the FOV circle for sword aimbot")
+
+bowGroup:Toggle({Name = "Enable Bow Aimbot", Flag = "BowAimbotEnabled", Value = false}):ToolTip("aims at nearest enemy when having bow equipped")
+
+modeStates["BowAimbotMode"] = "Hold"
+bowGroup:Dropdown({Name = "Aimbot Mode", Flag = "BowAimbotMode", List = {
+    makeModeOption("BowAimbotMode", "Always", false),
+    makeModeOption("BowAimbotMode", "Toggle", false, function() BowAimbotToggled = false end),
+    makeModeOption("BowAimbotMode", "Hold", true, function() BowAimbotToggled = false end),
+}}):ToolTip("how the bow aimbot activates")
+
+trackKeybind("BowAimbotKey")
+bowGroup:Keybind({
+    Name = "Bow Aimbot Key",
+    Flag = "BowAimbotKey",
+    Value = "MouseButton2",
+    Mouse = true,
+    Callback = function(key, pressed, toggled)
+        keybindStates["BowAimbotKey"].held = pressed
+        keybindStates["BowAimbotKey"].toggled = toggled
+        if pressed and modeStates["BowAimbotMode"] == "Toggle" then
+            BowAimbotToggled = not BowAimbotToggled
+        end
+    end,
+}):ToolTip("Bow Aimbot key")
+
+bowGroup:Toggle({Name = "Wall Check", Flag = "BowWallcheck", Value = false}):ToolTip("only aims at players not behind wall")
+bowGroup:Toggle({Name = "Smoothness", Flag = "BowSmoothnessEnabled", Value = false}):ToolTip("makes aimbot smoother")
+bowGroup:Slider({Name = "Smoothness Value", Flag = "BowSmoothness", Min = 1, Max = 10, Value = 1, Precise = 0}):ToolTip("higher = smoother but slower")
+bowGroup:Slider({Name = "FOV Radius", Flag = "BowFOV", Min = 10, Max = 500, Value = 200, Precise = 0}):ToolTip("radius of the FOV circle for bow aimbot")
+
+fovGroup:Toggle({Name = "Show FOV Circle", Flag = "ShowFOV", Value = false}):ToolTip("displays the FOV circle on screen")
+
+-- combat ui
+local combatGroup = Tabs.Combat:Section({Name = "Hitbox Expander", Side = "Left"})
+local autoClickGroup = Tabs.Combat:Section({Name = "Auto Clicker", Side = "Right"})
+local killAuraGroup = Tabs.Combat:Section({Name = "Kill Aura", Side = "Left"})
+
+combatGroup:Toggle({Name = "Enable Hitbox Expander", Flag = "HitboxExpander", Value = false}):ToolTip("expands enemy hitboxes (doesn't act as a infinite reach tho")
+combatGroup:Slider({Name = "Hitbox Size", Flag = "HitboxSize", Min = 1, Max = 200, Value = 50, Precise = 0}):ToolTip("size of expanded hitboxes")
+combatGroup:Slider({Name = "Hitbox Transparency", Flag = "HitboxTransparency", Min = 0, Max = 10, Value = 10, Precise = 0}):ToolTip("Transparency of expanded hitboxes (10 = invisible)")
+
+autoClickGroup:Toggle({Name = "Enable Auto Clicker", Flag = "AutoClicker", Value = false}):ToolTip("auto clicks for you ❤️")
+
+trackKeybind("AutoClickerKey")
+autoClickGroup:Keybind({
+    Name = "Auto Clicker Key",
+    Flag = "AutoClickerKey",
+    Value = "Q",
+    Callback = makeKeybindCallback("AutoClickerKey"),
+}):ToolTip("Auto Clicker key")
+
+autoClickGroup:Slider({Name = "Min CPS", Flag = "MinCPS", Min = 1, Max = 30, Value = 12, Precise = 0}):ToolTip("minimum clicks per second")
+autoClickGroup:Slider({Name = "Max CPS", Flag = "MaxCPS", Min = 1, Max = 30, Value = 16, Precise = 0}):ToolTip("maximum clicks per second")
+
+killAuraGroup:Toggle({Name = "Enable Kill Aura", Flag = "KillAura", Value = false}):ToolTip("automatically attacks nearby players")
+
+modeStates["KillAuraMode"] = "Toggle"
+killAuraGroup:Dropdown({Name = "Kill Aura Mode", Flag = "KillAuraMode", List = {
+    makeModeOption("KillAuraMode", "Always", false),
+    makeModeOption("KillAuraMode", "Toggle", true),
+    makeModeOption("KillAuraMode", "Hold", false),
+}}):ToolTip("How kill aura activates")
+
+trackKeybind("KillAuraKey")
+killAuraGroup:Keybind({
+    Name = "Kill Aura Key",
+    Flag = "KillAuraKey",
+    Value = "K",
+    Callback = makeKeybindCallback("KillAuraKey"),
+}):ToolTip("Kill Aura key")
+
+killAuraGroup:Slider({Name = "Radius", Flag = "KillAuraRadius", Min = 5, Max = 200, Value = 10, Precise = 0}):ToolTip("distance in studs to detect targets")
+killAuraGroup:Slider({Name = "Attack Cooldown", Flag = "KillAuraCooldown", Min = 1, Max = 20, Value = 1, Precise = 0}):ToolTip("cooldown between attacks (1 = 0.1s, 10 = 1s)")
+
+-- movement ui
+local movementGroup = Tabs.Movement:Section({Name = "Movement", Side = "Left"})
+local flyGroup = Tabs.Movement:Section({Name = "Fly", Side = "Right"})
+
+movementGroup:Toggle({Name = "Speed Hack", Flag = "Speedhack", Value = false}):ToolTip("makes you faster")
+movementGroup:Slider({Name = "Walk Speed", Flag = "SpeedhackValue", Min = 1, Max = 50, Value = 25, Precise = 0}):ToolTip("modified walkspeed value (be careful a high one might bug you out)")
+movementGroup:Toggle({Name = "No Fall Damage", Flag = "NoFallDamage", Value = false}):ToolTip("you have no fall damage")
+movementGroup:Toggle({Name = "Noclip", Flag = "Noclip", Value = false}):ToolTip("walk through walls")
+
+modeStates["NoclipMode"] = "Toggle"
+movementGroup:Dropdown({Name = "Noclip Mode", Flag = "NoclipMode", List = {
+    makeModeOption("NoclipMode", "Always", false),
+    makeModeOption("NoclipMode", "Toggle", true),
+    makeModeOption("NoclipMode", "Hold", false),
+}}):ToolTip("how noclip activates")
+
+trackKeybind("NoclipKey")
+movementGroup:Keybind({
+    Name = "Noclip Key",
+    Flag = "NoclipKey",
+    Value = "N",
+    Callback = makeKeybindCallback("NoclipKey"),
+}):ToolTip("Noclip key")
+
+flyGroup:Toggle({Name = "Fly", Flag = "Fly", Value = false}):ToolTip("lets you fly")
+
+trackKeybind("FlyKey")
+flyGroup:Keybind({
+    Name = "Fly Key",
+    Flag = "FlyKey",
+    Value = "V",
+    Callback = function(_key, pressed, toggled)
+        keybindStates["FlyKey"].held = pressed
+        keybindStates["FlyKey"].toggled = toggled
+        if pressed then
+            Window:SetValue("Fly", not getFlag("Fly"))
+        end
+    end,
+}):ToolTip("Fly key")
+
+flyGroup:Slider({Name = "Fly Speed", Flag = "FlySpeed", Min = 1, Max = 200, Value = 20, Precise = 0}):ToolTip("how fast you fly")
+
+-- misc ui
+local miscGroup = Tabs.Misc:Section({Name = "Bow Utilities", Side = "Left"})
+local autoPlaceGroup = Tabs.Misc:Section({Name = "Auto Place", Side = "Right"})
+local mapGroup = Tabs.Misc:Section({Name = "Map", Side = "Left"})
+
+miscGroup:Toggle({Name = "Bow Trajectory", Flag = "BowTrajectory", Value = false}):ToolTip("shows the predicted arrow path when charging bow")
+miscGroup:Toggle({Name = "Auto Shoot", Flag = "AutoShoot", Value = false}):ToolTip("automatically releases bow when trajectory hits a player (a bit broken)")
+
+autoPlaceGroup:Toggle({Name = "Auto Place", Flag = "AutoPlace", Value = false}):ToolTip("automatically places blocks while moving")
+
+modeStates["AutoPlaceMode"] = "Always"
+autoPlaceGroup:Dropdown({Name = "Auto Place Mode", Flag = "AutoPlaceMode", List = {
+    makeModeOption("AutoPlaceMode", "Always", true, function() AutoPlaceToggled = false end),
+    makeModeOption("AutoPlaceMode", "Toggle", false, function() AutoPlaceToggled = false end),
+    makeModeOption("AutoPlaceMode", "Hold", false, function() AutoPlaceToggled = false end),
+}}):ToolTip("how autoplace activates")
+
+trackKeybind("AutoPlaceKey")
+autoPlaceGroup:Keybind({
+    Name = "Auto Place Key",
+    Flag = "AutoPlaceKey",
+    Value = "P",
+    Callback = function(_key, pressed, toggled)
+        keybindStates["AutoPlaceKey"].held = pressed
+        keybindStates["AutoPlaceKey"].toggled = toggled
+        if pressed and modeStates["AutoPlaceMode"] == "Toggle" then
+            AutoPlaceToggled = not AutoPlaceToggled
+        end
+    end,
+}):ToolTip("Auto Place key")
+
+mapGroup:Toggle({Name = "Show Map", Flag = "ShowMap", Value = false}):ToolTip("shows the in-game map")
+
+modeStates["ShowMapMode"] = "Toggle"
+mapGroup:Dropdown({Name = "Show Map Mode", Flag = "ShowMapMode", List = {
+    makeModeOption("ShowMapMode", "Always", false),
+    makeModeOption("ShowMapMode", "Toggle", true, function() ShowMapToggled = false end),
+    makeModeOption("ShowMapMode", "Hold", false, function() ShowMapToggled = false end),
+}}):ToolTip("how show map activates")
+
+trackKeybind("ShowMapKey")
+mapGroup:Keybind({
+    Name = "Show Map Key",
+    Flag = "ShowMapKey",
+    Value = "M",
+    Callback = function(_key, pressed, toggled)
+        keybindStates["ShowMapKey"].held = pressed
+        keybindStates["ShowMapKey"].toggled = toggled
+        if pressed and modeStates["ShowMapMode"] == "Toggle" then
+            ShowMapToggled = not ShowMapToggled
+        end
+    end,
+}):ToolTip("Show Map key")
+
+-- settings tab
+local menuSection = Tabs.Settings:Section({Name = "Menu", Side = "Left"})
+
+local UIToggle = menuSection:Toggle({
+    Name = "UI Enabled",
+    Flag = "UI/Enabled",
+    Value = Window.Enabled,
+    Callback = function(value) Window.Enabled = value end,
+})
+UIToggle:Keybind({
+    Flag = "UI/Keybind",
+    Value = "RightShift",
+    DoNotClear = true,
+})
+UIToggle:Colorpicker({
+    Flag = "UI/Color",
+    Value = {15/360, 0.75, 1, 0, false},
+    Callback = function(_hsvar, color) Window.Color = color end,
 })
 
-Library.ToggleKeybind = Options.MenuKeybind
+menuSection:Toggle({Name = "Open On Load", Flag = "UI/OOL", Value = true})
+menuSection:Toggle({
+    Name = "Blur Gameplay",
+    Flag = "UI/Blur",
+    Value = false,
+    Callback = function(value) Window.Blur = value end,
+})
 
-ThemeManager:SetLibrary(Library)
-SaveManager:SetLibrary(Library)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+local watermarkToggle = menuSection:Toggle({
+    Name = "Watermark",
+    Flag = "UI/Watermark/Enabled",
+    Value = true,
+    Callback = function(value) Window.Watermark.Enabled = value end,
+})
+watermarkToggle:Keybind({Flag = "UI/Watermark/Keybind"})
 
-ThemeManager:SetFolder("uoro")
-SaveManager:SetFolder("uoro/game")
+menuSection:Toggle({Name = "Custom Cursor", Flag = "UI/CustomCursor", Value = true})
 
-SaveManager:BuildConfigSection(Tabs["UI Settings"])
-ThemeManager:ApplyToTab(Tabs["UI Settings"])
+menuSection:Button({
+    Name = "Unload",
+    Callback = function()
+        Window.Enabled = false
+        Watermark.Enabled = false
+        if Bracket and Bracket.ScreenAsset then
+            pcall(function() Bracket.ScreenAsset.Enabled = false end)
+        end
+    end,
+})
 
-SaveManager:LoadAutoloadConfig()
+Tabs.Settings:AddConfigSection("uoro", "Left")
 
--- main theme hope it doesn't brake
-task.wait(0.02)
-ThemeManager:ApplyTheme("BBot")
+local backgroundSection = Tabs.Settings:Section({Name = "Background", Side = "Right"})
+
+backgroundSection:Colorpicker({
+    Name = "Color",
+    Flag = "Background/Color",
+    Value = {1, 1, 0, 0, false},
+    Callback = function(hsvar, color)
+        Window.Background.ImageColor3 = color
+        Window.Background.ImageTransparency = hsvar[4]
+    end,
+})
+
+backgroundSection:Textbox({
+    HideName = true,
+    Flag = "Background/CustomImage",
+    Placeholder = "rbxassetid://ImageId",
+    Callback = function(text, enterPressed)
+        if enterPressed then Window.Background.Image = text end
+    end,
+})
+
+backgroundSection:Dropdown({HideName = true, Flag = "Background/Image", List = {
+    {Name = "Floral", Mode = "Button", Value = true, Callback = function(s)
+        if table.find(s, "Floral") then
+            Window.Background.Image = "rbxassetid://5553946656"
+            Window:SetValue("Background/CustomImage", "")
+        end
+    end},
+    {Name = "Hearts", Mode = "Button", Callback = function(s)
+        if table.find(s, "Hearts") then
+            Window.Background.Image = "rbxassetid://6073763717"
+            Window:SetValue("Background/CustomImage", "")
+        end
+    end},
+    {Name = "Abstract", Mode = "Button", Callback = function(s)
+        if table.find(s, "Abstract") then
+            Window.Background.Image = "rbxassetid://6073743871"
+            Window:SetValue("Background/CustomImage", "")
+        end
+    end},
+    {Name = "Hexagon", Mode = "Button", Callback = function(s)
+        if table.find(s, "Hexagon") then
+            Window.Background.Image = "rbxassetid://6073628839"
+            Window:SetValue("Background/CustomImage", "")
+        end
+    end},
+    {Name = "Circles", Mode = "Button", Callback = function(s)
+        if table.find(s, "Circles") then
+            Window.Background.Image = "rbxassetid://6071579801"
+            Window:SetValue("Background/CustomImage", "")
+        end
+    end},
+    {Name = "big yahu", Mode = "Button", Callback = function(s)
+        if table.find(s, "big yahu") then
+            Window.Background.Image = "rbxassetid://10012831714"
+            Window:SetValue("Background/CustomImage", "")
+        end
+    end},
+}})
+
+backgroundSection:Slider({
+    Name = "Tile Offset",
+    Flag = "Background/Offset",
+    Min = 74,
+    Max = 296,
+    Value = 74,
+    Precise = 0,
+    Callback = function(value)
+        Window.Background.TileSize = UDim2.fromOffset(value, value)
+    end,
+})
+
+backgroundSection:Button({
+    Name = "big yahu",
+    Callback = function()
+        Window.Background.Image = "rbxassetid://10012831714"
+        Window:SetValue("Background/CustomImage", "")
+    end,
+}):ToolTip("sets the background to big yahu")
+
+Window:SetValue("Background/Offset", 74)
+Window:AutoLoadConfig("uoro")
+Window:SetValue("UI/Enabled", getFlag("UI/OOL"))
 
 -- helper functions
 local function isBlockTool(tool)
@@ -613,7 +570,7 @@ local function GetKillAuraTarget()
     
     local bestDist = math.huge
     local bestChar = nil
-    local radius = Options.KillAuraRadius.Value
+    local radius = getFlag("KillAuraRadius")
     
     for _, player in pairs(PlayerService:GetPlayers()) do
         if player == localplayer then continue end
@@ -644,7 +601,7 @@ local function TryKillAuraAttack(targetChar, weaponName)
     if not targetHum or targetHum.Health <= 0 then return false end
     
     local dist = (char.PrimaryPart.Position - targetChar.HumanoidRootPart.Position).Magnitude
-    if dist > Options.KillAuraRadius.Value then return false end
+    if dist > getFlag("KillAuraRadius") then return false end
     
     local targetEntity = Entity.FindByCharacter(targetChar)
     if not targetEntity then return false end
@@ -742,7 +699,7 @@ FallDamageRemote = FindFallDamageRemote()
 if FallDamageRemote then
     OriginalFallDamageFire = FallDamageRemote.fire
     FallDamageRemote.fire = newcclosure(function(damage)
-        if Toggles.NoFallDamage.Value then return end
+        if getFlag("NoFallDamage") then return end
         return OriginalFallDamageFire(damage)
     end)
 end
@@ -750,10 +707,10 @@ end
 -- speedhack hook
 local OldIndex = nil
 OldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
-    if not checkcaller() and key == "WalkSpeed" and Toggles.Speedhack.Value then
+    if not checkcaller() and key == "WalkSpeed" and getFlag("Speedhack") then
         local ok, result = pcall(function() return self:IsA("Humanoid") end)
         if ok and result then
-            return Options.SpeedhackValue.Value
+            return getFlag("SpeedhackValue")
         end
     end
     return OldIndex(self, key)
@@ -822,7 +779,7 @@ local function SetupESP(player)
     Drawings.Distance.Color = Color3.fromRGB(255, 255, 255)
 
     RunService.RenderStepped:Connect(function()
-        if not Toggles.EspEnabled.Value then
+        if not getFlag("EspEnabled") then
             HideAllESP(Drawings)
             return
         end
@@ -848,7 +805,7 @@ local function SetupESP(player)
         local xPos = math.floor(x - width * 0.5)
         local yPos = math.floor((y - height * 0.5) + (0.5 * scale))
 
-        if Toggles.EspBoxEnabled.Value then
+        if getFlag("EspBoxEnabled") then
             Drawings.Box.Size = Vector2.new(width, height)
             Drawings.Box.Position = Vector2.new(xPos, yPos)
             Drawings.Box.Visible = true
@@ -861,7 +818,7 @@ local function SetupESP(player)
             Drawings.BoxOutline.Visible = false
         end
 
-        if Toggles.EspNameEnabled.Value then
+        if getFlag("EspNameEnabled") then
             Drawings.Name.Text = player.Name
             Drawings.Name.Position = Vector2.new(xPos + (width * 0.5), yPos - 15)
             Drawings.Name.Visible = true
@@ -869,7 +826,7 @@ local function SetupESP(player)
             Drawings.Name.Visible = false
         end
 
-        if Toggles.EspHealthBarEnabled.Value then
+        if getFlag("EspHealthBarEnabled") then
             local healthPercent = math.clamp(playerHum.Health / playerHum.MaxHealth, 0, 1)
             local healthHeight = math.floor(height * healthPercent)
             
@@ -893,7 +850,7 @@ local function SetupESP(player)
             Drawings.HealthBar.Visible = false
         end
 
-        if Toggles.EspHealthTextEnabled.Value then
+        if getFlag("EspHealthTextEnabled") then
             Drawings.HealthText.Text = string.format("%d/%d", math.floor(playerHum.Health), math.floor(playerHum.MaxHealth))
             Drawings.HealthText.Position = Vector2.new(xPos - 40, yPos)
             Drawings.HealthText.Visible = true
@@ -901,7 +858,7 @@ local function SetupESP(player)
             Drawings.HealthText.Visible = false
         end
 
-        if Toggles.EspDistanceEnabled.Value then
+        if getFlag("EspDistanceEnabled") then
             local dist = math.floor((localHRP.Position - playerHRP.Position).Magnitude)
             Drawings.Distance.Text = string.format("%d studs", dist)
             Drawings.Distance.Position = Vector2.new(xPos + (width * 0.5), yPos + height + 2)
@@ -928,8 +885,8 @@ end)
 -- auto clicker thread
 local AutoClickerThread = coroutine.create(function()
     while true do
-        if Toggles.AutoClicker.Value and Options.AutoClickerKey:GetState() then
-            local cps = math.random(Options.MinCPS.Value, Options.MaxCPS.Value)
+        if getFlag("AutoClicker") and isKeyHeld("AutoClickerKey") then
+            local cps = math.random(getFlag("MinCPS"), getFlag("MaxCPS"))
             mouse1click()
             task.wait(1 / cps)
         else
@@ -941,87 +898,48 @@ coroutine.resume(AutoClickerThread)
 
 -- checking functions
 local function IsNoclipActive()
-    if not Toggles.Noclip.Value then return false end
+    if not getFlag("Noclip") then return false end
     
-    local mode = Options.NoclipMode.Value
+    local mode = modeStates["NoclipMode"]
     if mode == "Always" then return true end
-    if mode == "Toggle" then return Options.NoclipKey:GetState() end
-    if mode == "Hold" then return Options.NoclipKey:GetState() end
+    if mode == "Toggle" then return isKeyToggled("NoclipKey") end
+    if mode == "Hold" then return isKeyHeld("NoclipKey") end
     
     return false
 end
 
 local function IsAutoPlaceActive()
-    if not Toggles.AutoPlace.Value then return false end
+    if not getFlag("AutoPlace") then return false end
     
-    local mode = Options.AutoPlaceMode.Value
+    local mode = modeStates["AutoPlaceMode"]
     if mode == "Always" then return true end
     if mode == "Toggle" then return AutoPlaceToggled end
-    if mode == "Hold" then return Options.AutoPlaceKey:GetState() end
+    if mode == "Hold" then return isKeyHeld("AutoPlaceKey") end
     
     return false
 end
 
 local function IsKillAuraActive()
-    if not Toggles.KillAura.Value then return false end
+    if not getFlag("KillAura") then return false end
     
-    local mode = Options.KillAuraMode.Value
+    local mode = modeStates["KillAuraMode"]
     if mode == "Always" then return true end
-    if mode == "Toggle" then return Options.KillAuraKey:GetState() end
-    if mode == "Hold" then return Options.KillAuraKey:GetState() end
+    if mode == "Toggle" then return isKeyToggled("KillAuraKey") end
+    if mode == "Hold" then return isKeyHeld("KillAuraKey") end
     
     return false
 end
 
 local function IsShowMapActive()
-    if not Toggles.ShowMap.Value then return false end
+    if not getFlag("ShowMap") then return false end
     
-    local mode = Options.ShowMapMode.Value
+    local mode = modeStates["ShowMapMode"]
     if mode == "Always" then return true end
     if mode == "Toggle" then return ShowMapToggled end
-    if mode == "Hold" then return Options.ShowMapKey:GetState() end
+    if mode == "Hold" then return isKeyHeld("ShowMapKey") end
     
     return false
 end
-
--- changed callbacks
-Options.NoclipMode:OnChanged(function()
-    if Options.NoclipMode.Value == "Toggle" then
-        Options.NoclipKey.Mode = "Toggle"
-    elseif Options.NoclipMode.Value == "Hold" then
-        Options.NoclipKey.Mode = "Hold"
-    end
-end)
-
-Options.AutoPlaceMode:OnChanged(function()
-    AutoPlaceToggled = false
-end)
-
-Options.AutoPlaceKey:OnClick(function()
-    if Options.AutoPlaceMode.Value == "Toggle" then
-        AutoPlaceToggled = not AutoPlaceToggled
-    end
-end)
-
-Options.ShowMapMode:OnChanged(function()
-    ShowMapToggled = false
-    
-    local mode = Options.ShowMapMode.Value
-    if mode == "Hold" then
-        Options.ShowMapKey:SetValue({ Options.ShowMapKey.Value, "Hold" })
-    elseif mode == "Toggle" then
-        Options.ShowMapKey:SetValue({ Options.ShowMapKey.Value, "Toggle" })
-    elseif mode == "Always" then
-        Options.ShowMapKey:SetValue({ Options.ShowMapKey.Value, "Toggle" })
-        ShowMapToggled = false
-    end
-end)
-
-Options.ShowMapKey:OnClick(function()
-    if Options.ShowMapMode.Value == "Toggle" then
-        ShowMapToggled = not ShowMapToggled
-    end
-end)
 
 -- show map loop
 RunService.RenderStepped:Connect(function()
@@ -1057,7 +975,7 @@ RunService.RenderStepped:Connect(function()
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return end
 
-    if Toggles.Fly.Value then
+    if getFlag("Fly") then
         if not flyBodyVelocity or not flyBodyVelocity.Parent then
             StartFly(char)
         end
@@ -1073,7 +991,7 @@ RunService.RenderStepped:Connect(function()
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
             if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0, 1, 0) end
             
-            flyBodyVelocity.Velocity = dir.Magnitude > 0 and dir.Unit * Options.FlySpeed.Value or Vector3.zero
+            flyBodyVelocity.Velocity = dir.Magnitude > 0 and dir.Unit * getFlag("FlySpeed") or Vector3.zero
             
             local flatLook = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
             if flatLook.Magnitude > 0.01 then
@@ -1085,21 +1003,6 @@ RunService.RenderStepped:Connect(function()
             StopFly(char)
         end
     end
-end)
-
-Toggles.Fly:OnChanged(function()
-    local char = localplayer.Character
-    if not char then return end
-    
-    if Toggles.Fly.Value then
-        StartFly(char)
-    else
-        StopFly(char)
-    end
-end)
-
-Options.FlyKey:OnClick(function()
-    Toggles.Fly:SetValue(not Toggles.Fly.Value)
 end)
 
 -- auto place and kill aura loop
@@ -1169,7 +1072,7 @@ RunService.Heartbeat:Connect(function()
                     TryKillAuraAttack(target, tool.Name)
                     
                     task.spawn(function()
-                        task.wait(Options.KillAuraCooldown.Value / 10)
+                        task.wait(getFlag("KillAuraCooldown") / 10)
                         killAuraCooldownActive = false
                     end)
                 end
@@ -1188,9 +1091,9 @@ RunService.RenderStepped:Connect(function()
     local isBow = equippedTool and (equippedTool.Name == "Bow" or CollectionService:HasTag(equippedTool, "Bow"))
 
     -- hitbox expander
-    if Toggles.HitboxExpander.Value then
-        local hitboxSize = Options.HitboxSize.Value
-        local hitboxTransparency = Options.HitboxTransparency.Value / 10
+    if getFlag("HitboxExpander") then
+        local hitboxSize = getFlag("HitboxSize")
+        local hitboxTransparency = getFlag("HitboxTransparency") / 10
         
         for _, player in pairs(PlayerService:GetPlayers()) do
             if player == localplayer then continue end
@@ -1233,38 +1136,38 @@ RunService.RenderStepped:Connect(function()
     local doBowAimbot = false
 
     -- check sword aimbot
-    if Toggles.SwordAimbotEnabled.Value and isSword then
-        local mode = Options.SwordAimbotMode.Value
+    if getFlag("SwordAimbotEnabled") and isSword then
+        local mode = modeStates["SwordAimbotMode"]
         if mode == "Always" then
             doSwordAimbot = true
         elseif mode == "Toggle" then
             doSwordAimbot = SwordAimbotToggled
         elseif mode == "Hold" then
-            doSwordAimbot = Options.SwordAimbotKey:GetState()
+            doSwordAimbot = isKeyHeld("SwordAimbotKey")
         end
     end
 
     -- check bow aimbot
-    if Toggles.BowAimbotEnabled.Value and isBow then
-        local mode = Options.BowAimbotMode.Value
+    if getFlag("BowAimbotEnabled") and isBow then
+        local mode = modeStates["BowAimbotMode"]
         if mode == "Always" then
             doBowAimbot = true
         elseif mode == "Toggle" then
             doBowAimbot = BowAimbotToggled
         elseif mode == "Hold" then
-            doBowAimbot = Options.BowAimbotKey:GetState()
+            doBowAimbot = isKeyHeld("BowAimbotKey")
         end
     end
 
     local aimTarget = nil
-    local currentFov = Options.SwordFOV.Value
+    local currentFov = getFlag("SwordFOV")
 
     if doSwordAimbot then
-        currentFov = Options.SwordFOV.Value
-        aimTarget = GetClosestPlayer(Options.SwordFOV.Value, Toggles.SwordWallcheck.Value)
+        currentFov = getFlag("SwordFOV")
+        aimTarget = GetClosestPlayer(getFlag("SwordFOV"), getFlag("SwordWallcheck"))
     elseif doBowAimbot then
-        currentFov = Options.BowFOV.Value
-        aimTarget = GetClosestPlayer(Options.BowFOV.Value, Toggles.BowWallcheck.Value)
+        currentFov = getFlag("BowFOV")
+        aimTarget = GetClosestPlayer(getFlag("BowFOV"), getFlag("BowWallcheck"))
     end
 
     -- apply aimbot
@@ -1276,10 +1179,10 @@ RunService.RenderStepped:Connect(function()
                 local mousePos = UserInputService:GetMouseLocation()
                 local smooth = 1
                 
-                if doSwordAimbot and Toggles.SwordSmoothnessEnabled.Value then
-                    smooth = math.clamp(Options.SwordSmoothness.Value / 10, 0.01, 1)
-                elseif doBowAimbot and Toggles.BowSmoothnessEnabled.Value then
-                    smooth = math.clamp(Options.BowSmoothness.Value / 10, 0.01, 1)
+                if doSwordAimbot and getFlag("SwordSmoothnessEnabled") then
+                    smooth = math.clamp(getFlag("SwordSmoothness") / 10, 0.01, 1)
+                elseif doBowAimbot and getFlag("BowSmoothnessEnabled") then
+                    smooth = math.clamp(getFlag("BowSmoothness") / 10, 0.01, 1)
                 end
                 
                 local deltaX = (targetScreen.X - mousePos.X) * smooth
@@ -1290,7 +1193,7 @@ RunService.RenderStepped:Connect(function()
     end
 
     -- fov circle
-    if Toggles.ShowFOV.Value then
+    if getFlag("ShowFOV") then
         local cx = camera.ViewportSize.X / 2
         local cy = camera.ViewportSize.Y / 2
         
@@ -1307,51 +1210,8 @@ RunService.RenderStepped:Connect(function()
     end
 
     -- speedhack
-    if Toggles.Speedhack.Value and humanoid then
-        humanoid.WalkSpeed = Options.SpeedhackValue.Value
-    end
-end)
-
--- aimbot key callbacks
-Options.SwordAimbotKey:OnClick(function()
-    local mode = Options.SwordAimbotMode.Value
-    if mode == "Toggle" then
-        SwordAimbotToggled = not SwordAimbotToggled
-    end
-end)
-
-Options.SwordAimbotMode:OnChanged(function()
-    SwordAimbotToggled = false
-    
-    local mode = Options.SwordAimbotMode.Value
-    if mode == "Hold" then
-        Options.SwordAimbotKey:SetValue({ Options.SwordAimbotKey.Value, "Hold" })
-    elseif mode == "Toggle" then
-        Options.SwordAimbotKey:SetValue({ Options.SwordAimbotKey.Value, "Toggle" })
-    elseif mode == "Always" then
-        Options.SwordAimbotKey:SetValue({ Options.SwordAimbotKey.Value, "Toggle" })
-        SwordAimbotToggled = false
-    end
-end)
-
-Options.BowAimbotKey:OnClick(function()
-    local mode = Options.BowAimbotMode.Value
-    if mode == "Toggle" then
-        BowAimbotToggled = not BowAimbotToggled
-    end
-end)
-
-Options.BowAimbotMode:OnChanged(function()
-    BowAimbotToggled = false
-    
-    local mode = Options.BowAimbotMode.Value
-    if mode == "Hold" then
-        Options.BowAimbotKey:SetValue({ Options.BowAimbotKey.Value, "Hold" })
-    elseif mode == "Toggle" then
-        Options.BowAimbotKey:SetValue({ Options.BowAimbotKey.Value, "Toggle" })
-    elseif mode == "Always" then
-        Options.BowAimbotKey:SetValue({ Options.BowAimbotKey.Value, "Toggle" })
-        BowAimbotToggled = false
+    if getFlag("Speedhack") and humanoid then
+        humanoid.WalkSpeed = getFlag("SpeedhackValue")
     end
 end)
 
@@ -1525,7 +1385,7 @@ end)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
-    if Toggles.BowTrajectory.Value and HasBowEquipped and not IsAutoShooting then
+    if getFlag("BowTrajectory") and HasBowEquipped and not IsAutoShooting then
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             IsHoldingBow = true
             ActiveMouseButton = 1
@@ -1554,7 +1414,7 @@ end)
 
 -- trajectory rendering
 RunService.RenderStepped:Connect(function()
-    if not Toggles.BowTrajectory.Value or not HasBowEquipped or not IsHoldingBow then
+    if not getFlag("BowTrajectory") or not HasBowEquipped or not IsHoldingBow then
         ClearTrajectory()
         return
     end
@@ -1569,7 +1429,7 @@ RunService.RenderStepped:Connect(function()
     local positions, hitPlayer = SimulateTrajectory(origin, aimPos, arrowSpeed)
     
     -- auto shoot check
-    if Toggles.AutoShoot.Value and hitPlayer and IsHoldingBow and elapsed >= 0.7 then
+    if getFlag("AutoShoot") and hitPlayer and IsHoldingBow and elapsed >= 0.7 then
         IsAutoShooting = true
         
         if ActiveMouseButton == 1 then mouse1release()
@@ -1619,9 +1479,7 @@ local fps = 60
 local GetPing = function() return math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()) end
 local canDoPing = pcall(function() return GetPing() end)
 
-Library:SetWatermarkVisibility(true)
-
-local watermarkConnection = RunService.RenderStepped:Connect(function()
+RunService.RenderStepped:Connect(function()
     frameCounter = frameCounter + 1
     
     if (tick() - frameTimer) >= 1 then
@@ -1631,18 +1489,8 @@ local watermarkConnection = RunService.RenderStepped:Connect(function()
     end
     
     if canDoPing then
-        Library:SetWatermark(("uoro | %d fps | %d ms"):format(math.floor(fps), GetPing()))
+        Watermark.Title = ("uoro | %d fps | %d ms"):format(math.floor(fps), GetPing())
     else
-        Library:SetWatermark(("uoro | %d fps"):format(math.floor(fps)))
+        Watermark.Title = ("uoro | %d fps"):format(math.floor(fps))
     end
-end)
-
--- unload handler
-Library:OnUnload(function()
-    watermarkConnection:Disconnect()
-    ClearTrajectory()
-    FOVOutline:Remove()
-    FOVCircle:Remove()
-    StopFly(localplayer.Character)
-    Library.Unloaded = true
 end)
