@@ -30,6 +30,7 @@ local storedHitboxes = {}
 local IsHoldingBow = false
 local ChargeStartTime = 0
 local HasBowEquipped = false
+local HasPearlEquipped = false
 local IsAutoShooting = false
 local ActiveMouseButton = 0
 
@@ -53,16 +54,23 @@ local TrajectoryOutlines = {}
 local espCache = {}
 local espConnections = {}
 local chamsCache = {}
+local tntTimerCache = {}
 
 local originalMouseIcon = UserInputService.MouseIcon
 
 -- forward declarations for functions used in Unload callback
 local ClearTrajectory
+local ClearPearlTrajectory
 local StopFly
 local StartFly
 local CleanupESP
 local CleanupChams
 local UpdateChams
+local CleanupTNTTimers
+
+-- pearl trajectory drawing arrays
+local PearlTrajectoryLines = {}
+local PearlTrajectoryOutlines = {}
 
 for i = 1, TrajectoryPointCount do
     local outline = Drawing.new("Line")
@@ -81,6 +89,56 @@ for i = 1, TrajectoryPointCount do
     TrajectoryLines[i] = line
 end
 
+for i = 1, TrajectoryPointCount do
+    local outline = Drawing.new("Line")
+    outline.Color = Color3.fromRGB(0, 0, 0)
+    outline.Thickness = 3
+    outline.Visible = false
+    outline.ZIndex = 1
+
+    local line = Drawing.new("Line")
+    line.Color = Color3.fromRGB(255, 255, 255)
+    line.Thickness = 1
+    line.Visible = false
+    line.ZIndex = 2
+
+    PearlTrajectoryOutlines[i] = outline
+    PearlTrajectoryLines[i] = line
+end
+
+-- trajectory end dots
+local BowEndDotOutline = Drawing.new("Circle")
+BowEndDotOutline.Thickness = 3
+BowEndDotOutline.Filled = true
+BowEndDotOutline.Color = Color3.fromRGB(0, 0, 0)
+BowEndDotOutline.Radius = 6
+BowEndDotOutline.Visible = false
+BowEndDotOutline.ZIndex = 3
+
+local BowEndDot = Drawing.new("Circle")
+BowEndDot.Thickness = 1
+BowEndDot.Filled = true
+BowEndDot.Color = Color3.fromRGB(255, 0, 0)
+BowEndDot.Radius = 4
+BowEndDot.Visible = false
+BowEndDot.ZIndex = 4
+
+local PearlEndDotOutline = Drawing.new("Circle")
+PearlEndDotOutline.Thickness = 3
+PearlEndDotOutline.Filled = true
+PearlEndDotOutline.Color = Color3.fromRGB(0, 0, 0)
+PearlEndDotOutline.Radius = 6
+PearlEndDotOutline.Visible = false
+PearlEndDotOutline.ZIndex = 3
+
+local PearlEndDot = Drawing.new("Circle")
+PearlEndDot.Thickness = 1
+PearlEndDot.Filled = true
+PearlEndDot.Color = Color3.fromRGB(255, 0, 0)
+PearlEndDot.Radius = 4
+PearlEndDot.Visible = false
+PearlEndDot.ZIndex = 4
+
 local FOVOutline = Drawing.new("Circle")
 FOVOutline.Thickness = 2.5
 FOVOutline.Filled = false
@@ -97,7 +155,7 @@ FOVCircle.Visible = false
 local Window = Bracket:Window({
     Name = "uoro",
     Enabled = true,
-    Color = Color3.fromRGB(255, 128, 64),
+    Color = Color3.fromRGB(255, 105, 180),
     Size = UDim2.new(0, 600, 0, 500),
     Position = UDim2.new(0.5, -300, 0.5, -250),
     Blur = true,
@@ -147,10 +205,12 @@ espDistToggle:Tooltip("shows distance in studs below the box")
 espDistToggle:Colorpicker({Flag = "EspDistanceColor", Value = {0, 0, 1, 0, false}, Callback = function() end})
 
 local espChamsToggle = espChamsGroup:Toggle({Name = "Enable Chams", Flag = "EspChamsEnabled", Value = false})
-espChamsToggle:Tooltip("shows BoxHandleAdornment highlights on players")
-espChamsToggle:Colorpicker({Flag = "EspChamsColor", Value = {0.08, 1, 1, 0.5, false}, Callback = function() end})
+espChamsToggle:Tooltip("uses Highlight on players")
 
-espChamsGroup:Slider({Name = "Chams Transparency", Flag = "EspChamsTransparency", Min = 0, Max = 10, Value = 5, Precise = 0}):Tooltip("0 = opaque, 10 = invisible")
+espChamsGroup:Colorpicker({Name = "Fill Color", Flag = "EspChamsFillColor", Value = {0.08, 1, 1, 0.5, false}, Callback = function() end})
+espChamsGroup:Colorpicker({Name = "Outline Color", Flag = "EspChamsOutlineColor", Value = {0, 0, 1, 0, false}, Callback = function() end})
+espChamsGroup:Slider({Name = "Fill Transparency", Flag = "EspChamsFillTransparency", Min = 0, Max = 10, Value = 5, Precise = 0}):Tooltip("0 = opaque, 10 = invisible")
+espChamsGroup:Slider({Name = "Outline Transparency", Flag = "EspChamsOutlineTransparency", Min = 0, Max = 10, Value = 0, Precise = 0}):Tooltip("0 = opaque, 10 = invisible")
 
 -- aimbot ui
 local swordGroup = Tabs.Aimbot:Section({Name = "Sword Aimbot", Side = "Left"})
@@ -229,20 +289,34 @@ flyKeybind:Tooltip("Fly key")
 flyGroup:Slider({Name = "Fly Speed", Flag = "FlySpeed", Min = 1, Max = 200, Value = 20, Precise = 0}):Tooltip("how fast you fly")
 
 -- misc ui
-local miscGroup = Tabs.Misc:Section({Name = "Bow Utilities", Side = "Left"})
+local bowUtilGroup = Tabs.Misc:Section({Name = "Bow Utilities", Side = "Left"})
+local pearlUtilGroup = Tabs.Misc:Section({Name = "Pearl Utilities", Side = "Left"})
 local autoPlaceGroup = Tabs.Misc:Section({Name = "Auto Place", Side = "Right"})
-local mapGroup = Tabs.Misc:Section({Name = "Map", Side = "Left"})
+local tntGroup = Tabs.Misc:Section({Name = "TNT Timer", Side = "Right"})
 
-miscGroup:Toggle({Name = "Bow Trajectory", Flag = "BowTrajectory", Value = false}):Tooltip("shows the predicted arrow path when charging bow")
-miscGroup:Toggle({Name = "Auto Shoot", Flag = "AutoShoot", Value = false}):Tooltip("automatically releases bow when trajectory hits a player (a bit broken)")
+local bowTrajToggle = bowUtilGroup:Toggle({Name = "Bow Trajectory", Flag = "BowTrajectory", Value = false})
+bowTrajToggle:Tooltip("shows the predicted arrow path when charging bow")
+bowTrajToggle:Colorpicker({Flag = "BowTrajectoryLineColor", Value = {0, 0, 1, 0, false}, Callback = function() end})
+
+local bowDotToggle = bowUtilGroup:Toggle({Name = "Bow End Dot", Flag = "BowEndDot", Value = true})
+bowDotToggle:Tooltip("shows a dot at the end of the trajectory")
+bowDotToggle:Colorpicker({Flag = "BowEndDotColor", Value = {0, 1, 1, 0, false}, Callback = function() end})
+
+bowUtilGroup:Toggle({Name = "Auto Shoot", Flag = "AutoShoot", Value = false}):Tooltip("automatically releases bow when trajectory hits a player")
+
+local pearlTrajToggle = pearlUtilGroup:Toggle({Name = "Pearl Trajectory", Flag = "PearlTrajectory", Value = false})
+pearlTrajToggle:Tooltip("shows predicted pearl path when pearl is equipped")
+pearlTrajToggle:Colorpicker({Flag = "PearlTrajectoryLineColor", Value = {0.75, 1, 1, 0, false}, Callback = function() end})
+
+local pearlDotToggle = pearlUtilGroup:Toggle({Name = "Pearl End Dot", Flag = "PearlEndDot", Value = true})
+pearlDotToggle:Tooltip("shows a dot at the end of the pearl trajectory")
+pearlDotToggle:Colorpicker({Flag = "PearlEndDotColor", Value = {0, 1, 1, 0, false}, Callback = function() end})
 
 local autoPlaceToggle = autoPlaceGroup:Toggle({Name = "Auto Place", Flag = "AutoPlace", Value = false})
 autoPlaceToggle:Tooltip("automatically places blocks while moving")
 autoPlaceToggle:Keybind({Flag = "AutoPlaceKey", Value = "P"})
 
-local showMapToggle = mapGroup:Toggle({Name = "Show Map", Flag = "ShowMap", Value = false})
-showMapToggle:Tooltip("shows the in-game map")
-showMapToggle:Keybind({Flag = "ShowMapKey", Value = "M"})
+tntGroup:Toggle({Name = "TNT Timer", Flag = "TntTimer", Value = false}):Tooltip("shows countdown timer on TNT projectiles")
 
 -- settings tab
 local menuSection = Tabs.Settings:Section({Name = "Menu", Side = "Left"})
@@ -260,7 +334,7 @@ UIToggle:Keybind({
 })
 UIToggle:Colorpicker({
     Flag = "UI/Color",
-    Value = {15/360, 0.75, 1, 0, false},
+    Value = {320/360, 0.59, 1, 0, false},
     Callback = function(_hsvar, color) Window.Color = color end,
 })
 
@@ -281,10 +355,19 @@ menuSection:Button({
         Watermark.Enabled = false
 
         ClearTrajectory()
+        ClearPearlTrajectory()
+
         for i = 1, TrajectoryPointCount do
             pcall(function() TrajectoryLines[i]:Remove() end)
             pcall(function() TrajectoryOutlines[i]:Remove() end)
+            pcall(function() PearlTrajectoryLines[i]:Remove() end)
+            pcall(function() PearlTrajectoryOutlines[i]:Remove() end)
         end
+
+        pcall(function() BowEndDot:Remove() end)
+        pcall(function() BowEndDotOutline:Remove() end)
+        pcall(function() PearlEndDot:Remove() end)
+        pcall(function() PearlEndDotOutline:Remove() end)
 
         FOVOutline:Remove()
         FOVCircle:Remove()
@@ -310,6 +393,8 @@ menuSection:Button({
         for player, _ in pairs(chamsCache) do
             CleanupChams(player)
         end
+
+        CleanupTNTTimers()
 
         if FallDamageRemote and OriginalFallDamageFire then
             FallDamageRemote.fire = OriginalFallDamageFire
@@ -401,6 +486,11 @@ local function isSwordTool(tool)
     if not tool then return false end
     local n = tool.Name
     return n:sub(-5) == "Sword" or n:sub(-3) == "Axe" or n:sub(-4) == "Mace" or n:sub(-5) == "Knife" or n:sub(-5) == "Spear"
+end
+
+local function isPearlTool(tool)
+    if not tool then return false end
+    return tool.Name == "Pearl" or CollectionService:HasTag(tool, "Pearl")
 end
 
 local function SnapToGrid(v)
@@ -639,12 +729,10 @@ local function GetFlagColor(flagName)
     return Color3.fromRGB(255, 255, 255)
 end
 
--- chams functions
+-- chams functions (using Highlight instead of BoxHandleAdornment)
 CleanupChams = function(player)
     if chamsCache[player] then
-        for _, adornment in pairs(chamsCache[player]) do
-            pcall(function() adornment:Destroy() end)
-        end
+        pcall(function() chamsCache[player]:Destroy() end)
         chamsCache[player] = nil
     end
 end
@@ -661,50 +749,30 @@ UpdateChams = function(player)
         return
     end
 
-    local chamsColor = GetFlagColor("EspChamsColor")
-    local chamsTransparency = getFlag("EspChamsTransparency") / 10
+    local fillColor = GetFlagColor("EspChamsFillColor")
+    local outlineColor = GetFlagColor("EspChamsOutlineColor")
+    local fillTransparency = getFlag("EspChamsFillTransparency") / 10
+    local outlineTransparency = getFlag("EspChamsOutlineTransparency") / 10
 
-    if not chamsCache[player] then
-        chamsCache[player] = {}
+    local highlight = chamsCache[player]
+    if highlight and highlight.Parent then
+        highlight.FillColor = fillColor
+        highlight.OutlineColor = outlineColor
+        highlight.FillTransparency = fillTransparency
+        highlight.OutlineTransparency = outlineTransparency
+        highlight.Adornee = playerChar
+    else
+        CleanupChams(player)
+        highlight = Instance.new("Highlight")
+        highlight.Adornee = playerChar
+        highlight.FillColor = fillColor
+        highlight.OutlineColor = outlineColor
+        highlight.FillTransparency = fillTransparency
+        highlight.OutlineTransparency = outlineTransparency
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Parent = playerChar
+        chamsCache[player] = highlight
     end
-
-    local existingParts = {}
-    for _, adornment in pairs(chamsCache[player]) do
-        if adornment.Adornee then
-            existingParts[adornment.Adornee] = adornment
-        end
-    end
-
-    local newAdornments = {}
-    for _, part in pairs(playerChar:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            local existing = existingParts[part]
-            if existing then
-                existing.Color3 = chamsColor
-                existing.Transparency = chamsTransparency
-                existing.Size = part.Size + Vector3.new(0.05, 0.05, 0.05)
-                existing.Visible = true
-                newAdornments[#newAdornments + 1] = existing
-                existingParts[part] = nil
-            else
-                local box = Instance.new("BoxHandleAdornment")
-                box.Adornee = part
-                box.AlwaysOnTop = true
-                box.ZIndex = 5
-                box.Size = part.Size + Vector3.new(0.05, 0.05, 0.05)
-                box.Color3 = chamsColor
-                box.Transparency = chamsTransparency
-                box.Parent = part
-                newAdornments[#newAdornments + 1] = box
-            end
-        end
-    end
-
-    for _, adornment in pairs(existingParts) do
-        pcall(function() adornment:Destroy() end)
-    end
-
-    chamsCache[player] = newAdornments
 end
 
 CleanupESP = function(player)
@@ -780,15 +848,16 @@ local function SetupESP(player)
 
         if not getFlag("EspEnabled") then
             HideAllESP(Drawings)
+            CleanupChams(player)
             return
         end
 
         local playerChar = player.Character
-        if not playerChar then HideAllESP(Drawings) return end
+        if not playerChar then HideAllESP(Drawings) CleanupChams(player) return end
 
         local playerHRP = playerChar:FindFirstChild("HumanoidRootPart")
         local playerHum = playerChar:FindFirstChildOfClass("Humanoid")
-        if not playerHRP or not playerHum then HideAllESP(Drawings) return end
+        if not playerHRP or not playerHum then HideAllESP(Drawings) CleanupChams(player) return end
 
         local localHRP = character and character:FindFirstChild("HumanoidRootPart")
         if not localHRP then HideAllESP(Drawings) return end
@@ -887,10 +956,10 @@ PlayerService.PlayerRemoving:Connect(function(v)
     CleanupESP(v)
 end)
 
--- auto clicker thread
+-- auto clicker thread (skips when UI is open so it doesn't click UI elements)
 local AutoClickerThread = coroutine.create(function()
     while true do
-        if getFlag("AutoClicker") then
+        if getFlag("AutoClicker") and not Window.Enabled then
             local cps = math.random(getFlag("MinCPS"), getFlag("MaxCPS"))
             mouse1click()
             task.wait(1 / cps)
@@ -900,15 +969,6 @@ local AutoClickerThread = coroutine.create(function()
     end
 end)
 coroutine.resume(AutoClickerThread)
-
--- show map loop
-RunService.RenderStepped:Connect(function()
-    local mainGui = localplayer.PlayerGui:FindFirstChild("MainGui")
-    if not mainGui then return end
-    local map = mainGui:FindFirstChild("Map") or mainGui:FindFirstChild("Minimap") or mainGui:FindFirstChild("MapFrame")
-    if not map then return end
-    map.Visible = getFlag("ShowMap")
-end)
 
 -- noclip loop
 RunService.Stepped:Connect(function()
@@ -1039,6 +1099,8 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- main aimbot and hitbox expander loop
+local wasAimbotActive = false
+
 RunService.RenderStepped:Connect(function()
     local char = localplayer.Character
     if not char then return end
@@ -1087,23 +1149,22 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- aimbot uses toggle value directly (keybind controls toggle via ToggleKeybind)
+    -- aimbot
     local doSwordAimbot = getFlag("SwordAimbotEnabled") and isSword
     local doBowAimbot = getFlag("BowAimbotEnabled") and isBow
+    local isAimbotActive = doSwordAimbot or doBowAimbot
 
     local aimTarget = nil
-    local currentFov = getFlag("SwordFOV")
+    local currentFov = doSwordAimbot and getFlag("SwordFOV") or getFlag("BowFOV")
 
     if doSwordAimbot then
-        currentFov = getFlag("SwordFOV")
         aimTarget = GetClosestPlayer(getFlag("SwordFOV"), getFlag("SwordWallcheck"))
     elseif doBowAimbot then
-        currentFov = getFlag("BowFOV")
         aimTarget = GetClosestPlayer(getFlag("BowFOV"), getFlag("BowWallcheck"))
     end
 
     -- apply aimbot
-    if aimTarget and aimTarget.Character then
+    if isAimbotActive and aimTarget and aimTarget.Character then
         local targetHRP = aimTarget.Character:FindFirstChild("HumanoidRootPart")
         if targetHRP then
             local targetScreen, onScreen = camera:WorldToViewportPoint(targetHRP.Position)
@@ -1124,8 +1185,10 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- fov circle
-    if getFlag("ShowFOV") then
+    wasAimbotActive = isAimbotActive
+
+    -- fov circle (only show when at least one aimbot is active)
+    if getFlag("ShowFOV") and isAimbotActive then
         local cx = camera.ViewportSize.X / 2
         local cy = camera.ViewportSize.Y / 2
 
@@ -1147,7 +1210,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- bow trajectory
+-- shared trajectory raycast params
 local sharedRayParams = RaycastParams.new()
 sharedRayParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -1156,6 +1219,17 @@ ClearTrajectory = function()
         TrajectoryLines[i].Visible = false
         TrajectoryOutlines[i].Visible = false
     end
+    BowEndDot.Visible = false
+    BowEndDotOutline.Visible = false
+end
+
+ClearPearlTrajectory = function()
+    for i = 1, TrajectoryPointCount do
+        PearlTrajectoryLines[i].Visible = false
+        PearlTrajectoryOutlines[i].Visible = false
+    end
+    PearlEndDot.Visible = false
+    PearlEndDotOutline.Visible = false
 end
 
 local function GetEquippedBow()
@@ -1170,11 +1244,27 @@ local function GetEquippedBow()
     return nil
 end
 
-local function UpdateBowState()
+local function GetEquippedPearl()
+    local currentChar = localplayer.Character
+    if not currentChar then return nil end
+
+    for _, tool in pairs(currentChar:GetChildren()) do
+        if tool:IsA("Tool") and isPearlTool(tool) then
+            return tool
+        end
+    end
+    return nil
+end
+
+local function UpdateToolStates()
     HasBowEquipped = GetEquippedBow() ~= nil
+    HasPearlEquipped = GetEquippedPearl() ~= nil
     if not HasBowEquipped then
         IsHoldingBow = false
         ClearTrajectory()
+    end
+    if not HasPearlEquipped then
+        ClearPearlTrajectory()
     end
 end
 
@@ -1208,6 +1298,16 @@ local function GetAimPosition()
         table.insert(filterList, cage.Parent)
     end
 
+    -- filter teammates
+    local team = localplayer.Team
+    if team and team.Name ~= "Neutral" then
+        for _, p in pairs(team:GetPlayers()) do
+            if p.Character and p.Character.Parent then
+                table.insert(filterList, p.Character)
+            end
+        end
+    end
+
     rayParams.FilterDescendantsInstances = filterList
     local crossPos = GetCrosshairPosition()
     local unitRay = camera:ScreenPointToRay(crossPos.X, crossPos.Y, 0)
@@ -1233,7 +1333,7 @@ local function GetSpeedFromCharge(elapsed)
     else return 110 + ((math.min(elapsed, 0.7) - 0.5) / 0.2) * 50 end
 end
 
-local function SimulateTrajectory(origin, aimPos, arrowSpeed)
+local function BuildFilterList()
     local currentChar = localplayer.Character
     local filterList = currentChar and { currentChar } or {}
 
@@ -1246,9 +1346,14 @@ local function SimulateTrajectory(origin, aimPos, arrowSpeed)
         table.insert(filterList, cage.Parent)
     end
 
+    return filterList
+end
+
+local function SimulateTrajectory(origin, aimPos, speed)
+    local filterList = BuildFilterList()
     sharedRayParams.FilterDescendantsInstances = filterList
     local direction = (aimPos - origin).Unit
-    local velocity = direction * arrowSpeed
+    local velocity = direction * speed
     local positions = {}
     local currentPos = origin
     local hitPlayer = false
@@ -1274,16 +1379,65 @@ local function SimulateTrajectory(origin, aimPos, arrowSpeed)
     return positions, hitPlayer
 end
 
--- bow state tracking
+local function RenderTrajectoryLines(positions, lines, outlines, lineColor, endDot, endDotOutline, dotColor, showDot)
+    local posCount = #positions
+    for i = 1, posCount - 1 do
+        local currentScreen, currentOnScreen = camera:WorldToViewportPoint(positions[i])
+        local nextScreen, nextOnScreen = camera:WorldToViewportPoint(positions[i + 1])
+
+        if currentOnScreen and nextOnScreen then
+            local from = Vector2.new(currentScreen.X, currentScreen.Y)
+            local to = Vector2.new(nextScreen.X, nextScreen.Y)
+
+            outlines[i].From = from
+            outlines[i].To = to
+            outlines[i].Visible = true
+
+            lines[i].Color = lineColor
+            lines[i].From = from
+            lines[i].To = to
+            lines[i].Visible = true
+        else
+            outlines[i].Visible = false
+            lines[i].Visible = false
+        end
+    end
+
+    for i = posCount, TrajectoryPointCount do
+        outlines[i].Visible = false
+        lines[i].Visible = false
+    end
+
+    -- end dot at the last position
+    if showDot and posCount >= 1 then
+        local lastScreen, lastOnScreen = camera:WorldToViewportPoint(positions[posCount])
+        if lastOnScreen then
+            local pos = Vector2.new(lastScreen.X, lastScreen.Y)
+            endDotOutline.Position = pos
+            endDotOutline.Visible = true
+            endDot.Color = dotColor
+            endDot.Position = pos
+            endDot.Visible = true
+        else
+            endDotOutline.Visible = false
+            endDot.Visible = false
+        end
+    else
+        endDotOutline.Visible = false
+        endDot.Visible = false
+    end
+end
+
+-- tool state tracking
 if localplayer.Character then
-    UpdateBowState()
+    UpdateToolStates()
 
     localplayer.Character.ChildAdded:Connect(function(child)
-        if child:IsA("Tool") then task.wait(0.05) UpdateBowState() end
+        if child:IsA("Tool") then task.wait(0.05) UpdateToolStates() end
     end)
 
     localplayer.Character.ChildRemoved:Connect(function(child)
-        if child:IsA("Tool") then task.wait(0.05) UpdateBowState() end
+        if child:IsA("Tool") then task.wait(0.05) UpdateToolStates() end
     end)
 end
 
@@ -1296,16 +1450,17 @@ localplayer.CharacterAdded:Connect(function(newCharacter)
     flyBodyGyro = nil
     IsHoldingBow = false
     ClearTrajectory()
+    ClearPearlTrajectory()
 
     task.wait(0.1)
-    UpdateBowState()
+    UpdateToolStates()
 
     newCharacter.ChildAdded:Connect(function(child)
-        if child:IsA("Tool") then task.wait(0.05) UpdateBowState() end
+        if child:IsA("Tool") then task.wait(0.05) UpdateToolStates() end
     end)
 
     newCharacter.ChildRemoved:Connect(function(child)
-        if child:IsA("Tool") then task.wait(0.05) UpdateBowState() end
+        if child:IsA("Tool") then task.wait(0.05) UpdateToolStates() end
     end)
 end)
 
@@ -1344,7 +1499,7 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- trajectory rendering
+-- bow trajectory rendering
 RunService.RenderStepped:Connect(function()
     if not getFlag("BowTrajectory") or not HasBowEquipped or not IsHoldingBow then
         ClearTrajectory()
@@ -1376,31 +1531,142 @@ RunService.RenderStepped:Connect(function()
         return
     end
 
-    local posCount = #positions
-    for i = 1, posCount - 1 do
-        local currentScreen, currentOnScreen = camera:WorldToViewportPoint(positions[i])
-        local nextScreen, nextOnScreen = camera:WorldToViewportPoint(positions[i + 1])
+    local lineColor = GetFlagColor("BowTrajectoryLineColor")
+    local dotColor = GetFlagColor("BowEndDotColor")
+    local showDot = getFlag("BowEndDot")
+    RenderTrajectoryLines(positions, TrajectoryLines, TrajectoryOutlines, lineColor, BowEndDot, BowEndDotOutline, dotColor, showDot)
+end)
 
-        if currentOnScreen and nextOnScreen then
-            local from = Vector2.new(currentScreen.X, currentScreen.Y)
-            local to = Vector2.new(nextScreen.X, nextScreen.Y)
+-- pearl trajectory rendering (shows while pearl is equipped, no charge needed)
+local PearlSpeed = 80
 
-            TrajectoryOutlines[i].From = from
-            TrajectoryOutlines[i].To = to
-            TrajectoryOutlines[i].Visible = true
-
-            TrajectoryLines[i].From = from
-            TrajectoryLines[i].To = to
-            TrajectoryLines[i].Visible = true
-        else
-            TrajectoryOutlines[i].Visible = false
-            TrajectoryLines[i].Visible = false
-        end
+RunService.RenderStepped:Connect(function()
+    if not getFlag("PearlTrajectory") or not HasPearlEquipped then
+        ClearPearlTrajectory()
+        return
     end
 
-    for i = posCount, TrajectoryPointCount do
-        TrajectoryOutlines[i].Visible = false
-        TrajectoryLines[i].Visible = false
+    local origin = GetFireOrigin()
+    local aimPos = GetAimPosition()
+
+    if not origin then ClearPearlTrajectory() return end
+
+    local positions, _ = SimulateTrajectory(origin, aimPos, PearlSpeed)
+
+    local lineColor = GetFlagColor("PearlTrajectoryLineColor")
+    local dotColor = GetFlagColor("PearlEndDotColor")
+    local showDot = getFlag("PearlEndDot")
+    RenderTrajectoryLines(positions, PearlTrajectoryLines, PearlTrajectoryOutlines, lineColor, PearlEndDot, PearlEndDotOutline, dotColor, showDot)
+end)
+
+-- tnt timer system
+local TNT_FUSE_TIME = 3.0
+
+CleanupTNTTimers = function()
+    for inst, gui in pairs(tntTimerCache) do
+        pcall(function() gui:Destroy() end)
+    end
+    tntTimerCache = {}
+end
+
+local function SetupTNTTimer(tntModel)
+    if tntTimerCache[tntModel] then return end
+
+    local spawnTime = tick()
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "TNTTimer"
+    billboard.Size = UDim2.new(0, 80, 0, 40)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Adornee = tntModel:FindFirstChild("HumanoidRootPart") or tntModel.PrimaryPart or tntModel:FindFirstChildWhichIsA("BasePart")
+
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    bg.BackgroundTransparency = 0.3
+    bg.BorderSizePixel = 1
+    bg.BorderColor3 = Color3.fromRGB(255, 60, 60)
+    bg.Parent = billboard
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = bg
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255, 60, 60)
+    label.TextStrokeTransparency = 0.5
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.TextSize = 18
+    label.Font = Enum.Font.GothamBold
+    label.Text = "3.0s"
+    label.Parent = bg
+
+    billboard.Parent = tntModel
+    tntTimerCache[tntModel] = billboard
+
+    task.spawn(function()
+        while tntModel and tntModel.Parent and tntTimerCache[tntModel] do
+            local remaining = TNT_FUSE_TIME - (tick() - spawnTime)
+            if remaining <= 0 then
+                label.Text = "BOOM"
+                label.TextColor3 = Color3.fromRGB(255, 255, 0)
+                task.wait(0.5)
+                break
+            end
+            label.Text = string.format("%.1fs", remaining)
+
+            if remaining <= 1 then
+                label.TextColor3 = Color3.fromRGB(255, 0, 0)
+            elseif remaining <= 2 then
+                label.TextColor3 = Color3.fromRGB(255, 165, 0)
+            else
+                label.TextColor3 = Color3.fromRGB(255, 60, 60)
+            end
+
+            task.wait(0.05)
+        end
+
+        if tntTimerCache[tntModel] then
+            pcall(function() tntTimerCache[tntModel]:Destroy() end)
+            tntTimerCache[tntModel] = nil
+        end
+    end)
+end
+
+-- tnt detection (watch for TNT projectiles tagged "TNTProjectile" or models named "TNT")
+local function CheckForTNT(instance)
+    if not getFlag("TntTimer") then return end
+
+    if instance:IsA("Model") then
+        local name = instance.Name:lower()
+        if name:find("tnt") or CollectionService:HasTag(instance, "TNTProjectile") then
+            SetupTNTTimer(instance)
+        end
+    end
+end
+
+workspace.DescendantAdded:Connect(function(descendant)
+    if getFlag("TntTimer") then
+        task.defer(function()
+            if descendant and descendant.Parent then
+                CheckForTNT(descendant)
+                if descendant:IsA("BasePart") and descendant.Parent:IsA("Model") then
+                    CheckForTNT(descendant.Parent)
+                end
+            end
+        end)
+    end
+end)
+
+CollectionService:GetInstanceAddedSignal("TNTProjectile"):Connect(function(instance)
+    if getFlag("TntTimer") then
+        local model = instance:IsA("Model") and instance or instance:FindFirstAncestorOfClass("Model")
+        if model then
+            SetupTNTTimer(model)
+        end
     end
 end)
 
