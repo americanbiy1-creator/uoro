@@ -1598,6 +1598,16 @@ function Assets:ToggleColorpicker(Parent,ScreenAsset,Window,Colorpicker)
 end
 
 local Bracket = Assets:Screen()
+task.defer(function()
+	for _,v in pairs(Bracket.ScreenAsset:GetDescendants()) do
+		if v:IsA("TextLabel") then
+			if string.find(string.lower(v.Text), "bracket") then
+				v.Text = ""
+				v.Visible = false
+			end
+		end
+	end
+end)
 function Bracket:Window(Window)
 	Window = GetType(Window,{},"table",true)
 	Window.Blur = GetType(Window.Blur,false,"boolean")
