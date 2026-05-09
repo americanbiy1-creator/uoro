@@ -1598,16 +1598,244 @@ function Assets:ToggleColorpicker(Parent,ScreenAsset,Window,Colorpicker)
 end
 
 local Bracket = Assets:Screen()
-task.defer(function()
-	for _,v in pairs(Bracket.ScreenAsset:GetDescendants()) do
-		if v:IsA("TextLabel") then
-			if string.find(string.lower(v.Text), "bracket") then
-				v.Text = ""
-				v.Visible = false
+
+local function deep_sanitize()
+	local function random_name()
+		local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		local result = ""
+		for i = 1, math.random(8, 16) do
+			local rand = math.random(1, #chars)
+			result = result .. chars:sub(rand, rand)
+		end
+		return result
+	end
+
+	local function sanitize_instance(instance)
+		if not instance then return end
+		
+		pcall(function()
+			if instance.Name and (string.find(string.lower(instance.Name), "bracket") or 
+			   string.find(string.lower(instance.Name), "v3")) then
+				instance.Name = random_name()
 			end
+		end)
+
+		pcall(function()
+			if instance:IsA("TextLabel") or instance:IsA("TextBox") or instance:IsA("TextButton") then
+				if instance.Text and (string.find(string.lower(instance.Text), "bracket") or 
+				   string.find(string.lower(instance.Text), "v3")) then
+					instance.Text = ""
+				end
+				if instance.PlaceholderText and string.find(string.lower(instance.PlaceholderText), "bracket") then
+					instance.PlaceholderText = ""
+				end
+			end
+		end)
+
+		for _, child in pairs(instance:GetChildren()) do
+			sanitize_instance(child)
+		end
+	end
+
+	sanitize_instance(Bracket.ScreenAsset)
+	
+	pcall(function()
+		for _, obj in pairs(_hui:GetDescendants()) do
+			sanitize_instance(obj)
+		end
+	end)
+end
+
+deep_sanitize()
+
+local original_childadded
+original_childadded = Bracket.ScreenAsset.ChildAdded:Connect(function(child)
+	task.defer(function()
+		local function sanitize_new(instance)
+			pcall(function()
+				if instance.Name and string.find(string.lower(instance.Name), "bracket") then
+					instance.Name = game:GetService("HttpService"):GenerateGUID(false)
+				end
+			end)
+			pcall(function()
+				if instance:IsA("TextLabel") or instance:IsA("TextBox") or instance:IsA("TextButton") then
+					if string.find(string.lower(instance.Text or ""), "bracket") then
+						instance.Text = ""
+					end
+				end
+			end)
+			for _, c in pairs(instance:GetDescendants()) do
+				sanitize_new(c)
+			end
+		end
+		sanitize_new(child)
+	end)
+end)
+
+local _protected_funcs = {}
+local function protect_function(func)
+	local protected = newcclosure(func)
+	_protected_funcs[protected] = true
+	return protected
+end
+
+local _original_namecall = hookmetamethod(game, "__namecall", protect_function(function(self, ...)
+	local method = getnamecallmethod()
+	local args = {...}
+	
+	if method == "GetChildren" or method == "GetDescendants" then
+		local result = _original_namecall(self, ...)
+		local filtered = {}
+		for _, v in pairs(result) do
+			local include = true
+			pcall(function()
+				local name = v.Name
+				if string.find(string.lower(name or ""), "bracket") or 
+				   string.find(string.lower(name or ""), "palette") or
+				   string.find(string.lower(name or ""), "optioncontainer") then
+					include = false
+				end
+			end)
+			if include then
+				table.insert(filtered, v)
+			end
+		end
+		return filtered
+	end
+	
+	if method == "FindFirstChild" or method == "WaitForChild" then
+		if type(args[1]) == "string" and string.find(string.lower(args[1]), "bracket") then
+			return nil
+		end
+	end
+	
+	return _original_namecall(self, ...)
+end))
+
+local _original_index = hookmetamethod(game, "__index", protect_function(function(self, key)
+	if key == "Name" then
+		local name = _original_index(self, key)
+		if type(name) == "string" then
+			if string.find(string.lower(name), "bracket") or string.find(string.lower(name), "palette") then
+				return HttpService:GenerateGUID(false)
+			end
+		end
+		return name
+	end
+	
+	if key == "Text" then
+		local text = _original_index(self, key)
+		if type(text) == "string" and string.find(string.lower(text), "bracket") then
+			return ""
+		end
+		return text
+	end
+	
+	return _original_index(self, key)
+end))
+
+local _original_newindex = hookmetamethod(game, "__newindex", protect_function(function(self, key, value)
+	if key == "Name" and type(value) == "string" then
+		if string.find(string.lower(value), "bracket") then
+			value = HttpService:GenerageGUID(false)
+		end
+	end
+	
+	return _original_newindex(self, key, value)
+end))
+
+for _, func_name in pairs({"getgc", "getinstances", "getnilinstances", "getrunningscripts", "getloadedmodules", "getscripts"}) do
+	local original_func = getgenv()[func_name]
+	if original_func then
+		getgenv()[func_name] = protect_function(function(...)
+			local results = original_func(...)
+			if type(results) == "table" then
+				local filtered = {}
+				for _, v in pairs(results) do
+					local include = true
+					pcall(function()
+						if type(v) == "table" then
+							if rawget(v, "ScreenAsset") or rawget(v, "Bracket") then
+								include = false
+							end
+						elseif typeof(v) == "Instance" then
+							local name = v.Name
+							if string.find(string.lower(name or ""), "bracket") then
+								include = false
+							end
+						end
+					end)
+					if include then
+						table.insert(filtered, v)
+					end
+				end
+				return filtered
+			end
+			return results
+		end)
+	end
+end
+
+local original_getconnections = getconnections
+if original_getconnections then
+	getgenv().getconnections = protect_function(function(signal)
+		local connections = original_getconnections(signal)
+		local filtered = {}
+		for _, conn in pairs(connections) do
+			local include = true
+			pcall(function()
+				local func = conn.Function
+				if func then
+					local info = debug.getinfo(func)
+					if info and info.source then
+						if string.find(string.lower(info.source), "bracket") then
+							include = false
+						end
+					end
+				end
+			end)
+			if include then
+				table.insert(filtered, conn)
+			end
+		end
+		return filtered
+	end)
+end
+
+task.spawn(function()
+	while task.wait(1) do
+		pcall(deep_sanitize)
+	end
+end)
+
+local env_protect = protect_function(function()
+	local env = getgenv()
+	for k, v in pairs(env) do
+		if type(k) == "string" and string.find(string.lower(k), "bracket") then
+			env[k] = nil
 		end
 	end
 end)
+
+task.spawn(function()
+	while task.wait(2) do
+		pcall(env_protect)
+	end
+end)
+
+local function hide_from_devtools()
+	for _, conn in pairs(getconnections(game.DescendantAdded)) do
+		pcall(function()
+			local info = debug.getinfo(conn.Function)
+			if info and info.source and (string.find(info.source, "DevConsole") or string.find(info.source, "CoreGui")) then
+				conn:Disable()
+			end
+		end)
+	end
+end
+
+pcall(hide_from_devtools)
+
 function Bracket:Window(Window)
 	Window = GetType(Window,{},"table",true)
 	Window.Blur = GetType(Window.Blur,false,"boolean")
@@ -2041,80 +2269,6 @@ function Bracket:Notification2(Notification)
 			NotificationAsset:Destroy() if Notification.Callback then Notification.Callback() end
 		end)
 	end)
-end
-
-do
-	local _gc = getgc(true)
-	for _,v in pairs(_gc) do
-		if type(v) == "table" then
-			local ok,res = pcall(rawget,v,"Name")
-			if ok and res == "Bracket" then
-				pcall(rawset,v,"Name",HttpService:GenerateGUID(false))
-			end
-		end
-	end
-
-	local _connections = getconnections(game.DescendantAdded)
-	for _,conn in pairs(_connections) do
-		pcall(function()
-			local info = debug.getinfo(conn.Function)
-			if info and info.source and string.find(info.source,"Bracket") then
-				conn:Disable()
-			end
-		end)
-	end
-
-	for _,inst in pairs(getnilinstances()) do
-		pcall(function()
-			if inst:IsA("ScreenGui") or inst:IsA("Frame") then
-				local n = inst.Name
-				if string.find(n,"Bracket") then
-					inst.Name = HttpService:GenerateGUID(false)
-				end
-			end
-		end)
-	end
-
-	pcall(function()
-		local hui = gethui()
-		for _,child in pairs(hui:GetChildren()) do
-			if string.find(tostring(child.Name),"Bracket") then
-				child.Name = HttpService:GenerateGUID(false)
-			end
-		end
-	end)
-
-	local _orig_index
-	_orig_index = hookmetamethod(game,"__index",newcclosure(function(self,key)
-		if tostring(key) == "Name" then
-			local n = _orig_index(self,key)
-			if type(n) == "string" and string.find(n,"Bracket") then
-				return HttpService:GenerateGUID(false)
-			end
-		end
-		return _orig_index(self,key)
-	end))
-
-	local scriptsToHide = {}
-	for _,s in pairs(getrunningscripts()) do
-		pcall(function()
-			local src = getscriptbytecode(s)
-			if src and string.find(src,"Bracket") then
-				table.insert(scriptsToHide,s)
-			end
-		end)
-	end
-
-	for _,conn2 in pairs(getconnections(game.DescendantRemoving)) do
-		pcall(function()
-			local info2 = debug.getinfo(conn2.Function)
-			if info2 and info2.source and string.find(tostring(info2.source),"Bracket") then
-				conn2:Disable()
-			end
-		end)
-	end
-
-	setstackhidden(newcclosure(function() end),true)
 end
 
 return Bracket
